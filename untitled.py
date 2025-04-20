@@ -11,6 +11,7 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_community.chat_message_histories.streamlit import StreamlitChatMessageHistory
+from langchain_core.runnables import RunnableMap
 
 import hashlib
 import shutil
@@ -89,7 +90,11 @@ def initialize_components(file_path: str, selected_model: str):
 
     llm = ChatOpenAI(model=selected_model)
     history_aware_retriever = create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
-    question_answer_chain = create_stuff_documents_chain(llm, qa_prompt)
+    question_answer_chain = RunnableMap({
+        "context": lambda x: x["context"],  # context 그대로 pass
+        "answer": create_stuff_documents_chain(llm, qa_prompt)
+    })
+
     rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
 
     return rag_chain
