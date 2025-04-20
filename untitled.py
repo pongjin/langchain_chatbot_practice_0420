@@ -15,12 +15,13 @@ from langchain_community.chat_message_histories.streamlit import StreamlitChatMe
 import hashlib
 import shutil
 
+# ✅ 파일 해시 생성
 def get_file_hash(uploaded_file):
     file_content = uploaded_file.read()
-    uploaded_file.seek(0)  # 다시 처음으로 돌려줘야 나중에 read 가능
+    uploaded_file.seek(0)
     return hashlib.md5(file_content).hexdigest()
 
-
+# ✅ pysqlite3 패치
 __import__('pysqlite3')
 import sys
 sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
@@ -28,15 +29,14 @@ sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 from langchain_chroma import Chroma
 os.environ["OPENAI_API_KEY"] = st.secrets['OPENAI_API_KEY']
 
-
-st.header("유저 응답 기반 Q&A 챗봇 💬")
+st.header("(주말을 순삭시킨)유저 응답 기반 Q&A 챗봇 💬")
 
 option = st.selectbox("Select GPT Model", ("gpt-4o-mini", "gpt-4.1-nano"))
 
-# ✅ CSV 로딩 후 유저 단위로 청크 만들기
+# ✅ CSV 로딩 → 유저 단위로 문서 생성
 @st.cache_resource
-def load_csv_and_create_docs(_file, _file_hash):
-    df = pd.read_csv(_file)
+def load_csv_and_create_docs(file_path: str):
+    df = pd.read_csv(file_path)
 
     if 'user_id' not in df.columns or 'answer' not in df.columns:
         st.error("CSV 파일은 'user_id' 와 'answer' 컬럼을 포함해야 합니다.")
@@ -50,26 +50,29 @@ def load_csv_and_create_docs(_file, _file_hash):
 
     return docs
 
-# ✅ Vectorstore 생성
+# ✅ 벡터스토어 생성
 @st.cache_resource
-def create_vector_store(_docs, _file_hash):
+def create_vector_store(file_path: str):
+    docs = load_csv_and_create_docs(file_path)
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=0)
-    split_docs = text_splitter.split_documents(_docs)
-    persist_dir = f"./chroma_db_user/{_file_hash}"
+    split_docs = text_splitter.split_documents(docs)
+
+    file_hash = os.path.splitext(os.path.basename(file_path))[0]
+    persist_dir = f"./chroma_db_user/{file_hash}"
     if os.path.exists(persist_dir):
-        shutil.rmtree(persist_dir)  # 👈 기존 벡터 저장소 삭제
+        shutil.rmtree(persist_dir)
 
     vectorstore = Chroma.from_documents(
         split_docs,
         OpenAIEmbeddings(model='text-embedding-3-small'),
-        persist_directory= persist_dir
+        persist_directory=persist_dir
     )
     return vectorstore
 
 # ✅ RAG 체인 초기화
 @st.cache_resource
-def initialize_components(_docs, selected_model, _file_hash):
-    vectorstore = create_vector_store(_docs, _file_hash)
+def initialize_components(file_path: str, selected_model: str):
+    vectorstore = create_vector_store(file_path)
     retriever = vectorstore.as_retriever()
 
     contextualize_q_prompt = ChatPromptTemplate.from_messages([
@@ -79,7 +82,7 @@ def initialize_components(_docs, selected_model, _file_hash):
     ])
 
     qa_prompt = ChatPromptTemplate.from_messages([
-        ("system", "다음 문서 내용을 참고하여 질문에 무조건 한국어로 답변해줘. 문서와 유사한 내용이 없으면 무조건 '관련된 내용이 없습나다'라고 말해줘. 꼭 이모지 써줘! 참고 문서는 아래에 보여줄 거야.\n\n{context}"),
+        ("system", "다음 문서 내용을 참고하여 질문에 무조건 한국어로 답변해줘. 문서와 유사한 내용이 없으면 무조건 '관련된 내용이 없습니다'라고 말해줘. 꼭 이모지 써줘! 참고 문서는 아래에 보여줄 거야.\n\n{context}"),
         MessagesPlaceholder("history"),
         ("human", "{input}"),
     ])
@@ -91,13 +94,18 @@ def initialize_components(_docs, selected_model, _file_hash):
 
     return rag_chain
 
-# ✅ CSV 업로드
+# ✅ 파일 업로드
 uploaded_file = st.file_uploader("CSV 파일을 업로드하세요 (user_id, answer 포함)", type=["csv"])
 
 if uploaded_file:
     file_hash = get_file_hash(uploaded_file)
-    docs = load_csv_and_create_docs(uploaded_file, file_hash)
-    rag_chain = initialize_components(docs, option, file_hash)
+    temp_dir = tempfile.gettempdir()
+    temp_path = os.path.join(temp_dir, f"{file_hash}.csv")
+
+    with open(temp_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
+
+    rag_chain = initialize_components(temp_path, option)
     chat_history = StreamlitChatMessageHistory(key="chat_messages_user")
 
     conversational_rag_chain = RunnableWithMessageHistory(
@@ -124,21 +132,12 @@ if uploaded_file:
                     config,
                 )
                 answer = response['answer']
-                st.write(response['answer'])
-                
-                # ✅ "관련된 내용이 없습니다" 같은 문구가 있으면 참고 문서 숨김
+                st.write(answer)
+
                 if "관련된 내용이 없습니다" not in answer and response.get("context"):
                     with st.expander("참고 문서 확인"):
                         for doc in response['context']:
                             source = doc.metadata.get('source', '알 수 없음')
-
-                            # ✅ 경로 정제: 임시 경로 제거
-                            if "/var/" in source:
-                                continue  # 이 줄을 쓰면 임시 파일은 아예 안 보여줌
-
-                            # 또는 아래처럼 파일 이름만 추출해서 보여줄 수도 있음
                             source_filename = os.path.basename(source)
-
-                            # 📄 파일명과 페이지 번호 바로 뒤에 page_content 추가
                             st.markdown(f"👤 {source_filename}")
-                            st.markdown(doc.page_content)  # 페이지 내용 바로 출력
+                            st.markdown(doc.page_content)
