@@ -54,12 +54,14 @@ def load_csv_and_create_docs(_file, _file_hash):
 def create_vector_store(_docs, _file_hash):
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=0)
     split_docs = text_splitter.split_documents(_docs)
-    #persist_dir = f"./chroma_db_user/{_file_hash}"
+    persist_dir = f"./chroma_db_user/{_file_hash}"
+    if os.path.exists(persist_dir):
+        shutil.rmtree(persist_dir)  # 👈 기존 벡터 저장소 삭제
 
     vectorstore = Chroma.from_documents(
         split_docs,
         OpenAIEmbeddings(model='text-embedding-3-small'),
-        persist_directory= None #persist_dir
+        persist_directory= persist_dir
     )
     return vectorstore
 
