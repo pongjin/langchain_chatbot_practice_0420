@@ -13,6 +13,7 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_community.chat_message_histories.streamlit import StreamlitChatMessageHistory
 
 import hashlib
+import shutil
 
 def get_file_hash(uploaded_file):
     file_content = uploaded_file.read()
