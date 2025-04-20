@@ -4,7 +4,7 @@ langchain-community
 langchain-openai
 langchain-core
 langchain-chroma
-sqlite3-binary
+pysqlite3-binary
 pypdf
 langchain-text-splitters
 pandas
