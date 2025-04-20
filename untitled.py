@@ -66,7 +66,7 @@ def create_vector_store(_docs, _file_hash):
 # ✅ RAG 체인 초기화
 @st.cache_resource
 def initialize_components(_docs, selected_model, _file_hash):
-    vectorstore = create_vector_store(_docs)
+    vectorstore = create_vector_store(_docs, _file_hash)
     retriever = vectorstore.as_retriever()
 
     contextualize_q_prompt = ChatPromptTemplate.from_messages([
