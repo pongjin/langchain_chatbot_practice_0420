@@ -12,9 +12,17 @@ from langchain.chains import create_history_aware_retriever, create_retrieval_ch
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_community.chat_message_histories.streamlit import StreamlitChatMessageHistory
 
-__import__('pysqlite3')
-import sys
-sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+import hashlib
+
+def get_file_hash(uploaded_file):
+    file_content = uploaded_file.read()
+    uploaded_file.seek(0)  # 다시 처음으로 돌려줘야 나중에 read 가능
+    return hashlib.md5(file_content).hexdigest()
+
+
+#__import__('pysqlite3')
+#import sys
+#sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 
 from langchain_chroma import Chroma
 os.environ["OPENAI_API_KEY"] = st.secrets['OPENAI_API_KEY']
@@ -26,7 +34,7 @@ option = st.selectbox("Select GPT Model", ("gpt-4o-mini", "gpt-4.1-nano"))
 
 # ✅ CSV 로딩 후 유저 단위로 청크 만들기
 @st.cache_resource
-def load_csv_and_create_docs(_file):
+def load_csv_and_create_docs(_file, _file_hash):
     df = pd.read_csv(_file)
 
     if 'user_id' not in df.columns or 'answer' not in df.columns:
@@ -56,7 +64,7 @@ def create_vector_store(_docs):
 
 # ✅ RAG 체인 초기화
 @st.cache_resource
-def initialize_components(_docs, selected_model):
+def initialize_components(_docs, selected_model, _file_hash):
     vectorstore = create_vector_store(_docs)
     retriever = vectorstore.as_retriever()
 
@@ -83,8 +91,9 @@ def initialize_components(_docs, selected_model):
 uploaded_file = st.file_uploader("CSV 파일을 업로드하세요 (user_id, answer 포함)", type=["csv"])
 
 if uploaded_file:
-    docs = load_csv_and_create_docs(uploaded_file)
-    rag_chain = initialize_components(docs, option)
+    file_hash = get_file_hash(uploaded_file)
+    docs = load_csv_and_create_docs(uploaded_file, file_hash)
+    rag_chain = initialize_components(docs, option, file_hash)
     chat_history = StreamlitChatMessageHistory(key="chat_messages_user")
 
     conversational_rag_chain = RunnableWithMessageHistory(
