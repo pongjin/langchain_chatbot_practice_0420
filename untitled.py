@@ -13,6 +13,9 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_community.chat_message_histories.streamlit import StreamlitChatMessageHistory
 from langchain_core.runnables import RunnableMap
 
+from sentence_transformers import SentenceTransformer  # 추가
+from langchain_core.embeddings import Embeddings       # 추가
+
 import hashlib
 import shutil
 
@@ -51,6 +54,23 @@ def load_csv_and_create_docs(file_path: str):
 
     return docs
 
+@st.cache_resource
+def get_embedder():
+    class STEmbedding(Embeddings):
+        def __init__(self, model_name: str):
+            # ko 전용 임베딩 모델
+            self.model = SentenceTransformer(model_name)
+
+        def embed_documents(self, texts):
+            # 리스트 입력에 대해 배치 인코딩
+            return self.model.encode(list(texts), normalize_embeddings=True).tolist()
+
+        def embed_query(self, text):
+            # 단일 쿼리 인코딩
+            return self.model.encode(text, normalize_embeddings=True).tolist()
+
+    return STEmbedding("dragonkue/snowflake-arctic-embed-l-v2.0-ko")
+
 # ✅ 벡터스토어 생성
 @st.cache_resource
 def create_vector_store(file_path: str):
@@ -63,9 +83,10 @@ def create_vector_store(file_path: str):
     if os.path.exists(persist_dir):
         shutil.rmtree(persist_dir)
 
+    embeddings = get_embedder()  # ← 여기만 교체
     vectorstore = Chroma.from_documents(
         split_docs,
-        OpenAIEmbeddings(model='text-embedding-3-small'),
+        embeddings,
         persist_directory=persist_dir
     )
     return vectorstore
